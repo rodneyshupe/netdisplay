@@ -1,5 +1,7 @@
 # netdisplay
 
+[![tests](https://github.com/rodneyshupe/netdisplay/actions/workflows/tests.yml/badge.svg)](https://github.com/rodneyshupe/netdisplay/actions/workflows/tests.yml)
+
 A small, config-driven status dashboard for **a little LCD on a Raspberry Pi**, **a web page**, and **the command line**, all fed by PromQL queries against Prometheus, VictoriaMetrics or anything else that speaks the Prometheus HTTP API.
 
 You describe what to show in one YAML file: stats, sparklines, bars, status lists and tables, each backed by a query. netdisplay resolves it once into a single model and draws that model three ways, so the screen, the web page and `netdisplay show --json` always agree.
