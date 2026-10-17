@@ -1,0 +1,250 @@
+# A full example for a typical homelab: router, Proxmox, NAS, downloads and services, using only PUBLIC exporters
+# (node_exporter, prometheus-pve-exporter, blackbox_exporter, speedtest-exporter, Uptime Kuma, the qBittorrent /
+# NZBGet / exportarr exporters). It shows every widget type.
+#
+# HOW TO ADAPT IT
+#   1. Edit `datasource.url` and the `vars:` block just below: those hold every name that differs per setup.
+#   2. Run `netdisplay validate`. It lists queries that return nothing, i.e. exporters or labels you don't have.
+#   3. Delete what you don't need. Pages marked `hide_if_empty: true` drop out by themselves when their
+#      exporters aren't there, so you can also just leave them.
+#
+# Slow metrics (a speedtest every 30 minutes) are wrapped in last_over_time(), which needs Prometheus >= 2.26
+# or VictoriaMetrics. Page fragments for setups that need their own metrics (Technitium DNS, an Authentik HA
+# cluster) are in examples/snippets/.
+
+title: Homelab status
+
+datasource:
+  url: http://192.168.1.10:8428        # Prometheus, VictoriaMetrics, Mimir, Thanos...
+
+# ${name} anywhere in this file is replaced with the value below.
+vars:
+  router: router                       # `instance` label of your router's node_exporter
+  wan_if: wan                          # network device facing the internet (OpenWrt: wan, others: eth0, ppp0...)
+  lan_if: br-lan                       # network device facing the LAN
+  nas: nas                             # `instance` label of your NAS's node_exporter
+  nas_if: bond0                        # the NAS's main network device
+  nas_mounts: '/share/.*|/volume[0-9]+|/mnt/.*'    # regex of NAS data mount points to list
+  probe_job: 'blackbox.*'              # regex matching your blackbox_exporter scrape job name(s)
+  web_probe: 'https://www.google.com'  # a blackbox target (its `instance` label) used for the latency tile
+
+alerts:
+  ignore: []                           # regexes of banner messages to hide, e.g. ['^Test monitor']
+  rules:
+    - {name: node down,    expr: 'up{job=~"node|pve"} == 0',                 message: '{instance} down'}
+    - {name: pve down,     expr: 'pve_up{id=~"node/.*"} == 0',               message: '{id} down'}
+    - {name: probe failed, expr: 'probe_success{job=~"${probe_job}"} == 0',  message: '{instance} failing'}
+    - {name: kuma down,    expr: 'monitor_status{monitor_type!="group"} == 0', message: '{monitor_name} down'}
+    - name: disk nearly full
+      expr: 'max by (instance) (1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs|zfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs|btrfs|zfs"}) > 0.92'
+      message: '{instance} disk {value:ratio}'
+
+pages:
+  # ------------------------------------------------------------------ Internet
+  - id: internet
+    title: Internet
+    rows:
+      - - type: stat
+          id: speedtest
+          w: 6
+          label: 'LAST SPEEDTEST · {age:dur} ago · Mb/s'
+          queries:
+            down:     'last_over_time(speedtest_download_bits_per_second[6h])'
+            up:       'last_over_time(speedtest_upload_bits_per_second[6h])'
+            age:      'time() - timestamp(last_over_time(speedtest_download_bits_per_second[6h]))'
+            avg_down: 'avg_over_time(speedtest_download_bits_per_second[7d])'
+            avg_up:   'avg_over_time(speedtest_upload_bits_per_second[7d])'
+            ping:     'last_over_time(speedtest_ping_latency_milliseconds[6h])'
+            # worst of down/up as % of the 7-day average; the tile turns amber when the last run is well below it
+            vs_avg:   '100 * ((last_over_time(speedtest_download_bits_per_second[6h]) / avg_over_time(speedtest_download_bits_per_second[7d]) < last_over_time(speedtest_upload_bits_per_second[6h]) / avg_over_time(speedtest_upload_bits_per_second[7d])) or (last_over_time(speedtest_upload_bits_per_second[6h]) / avg_over_time(speedtest_upload_bits_per_second[7d])))'
+          value: '↓{down:mbps} ↑{up:mbps}'
+          sub: '7d avg ↓{avg_down:mbps} ↑{avg_up:mbps} · ping {ping:ms}'
+          color_query: vs_avg
+          thresholds: {warn_below: 60}
+          color: fg
+        - type: stat
+          id: latency
+          w: 3
+          label: LATENCY
+          query: 'probe_duration_seconds{instance="${web_probe}"} * 1000'
+          format: ms
+          sub: web probe
+          thresholds: {warn: 300, bad: 1000}
+        - type: stat
+          id: sites
+          w: 3
+          label: SITES UP
+          queries:
+            ok:    'count(probe_success{job=~"${probe_job}"} == 1) or vector(0)'
+            total: 'count(probe_success{job=~"${probe_job}"})'
+            pct:   '100 * (count(probe_success{job=~"${probe_job}"} == 1) or vector(0)) / count(probe_success{job=~"${probe_job}"})'
+          value: '{ok:int}/{total:int}'
+          sub: probes
+          color_query: pct
+          thresholds: {bad_below: 100}
+      - - {type: stat, id: wan_down, h: 58, w: 6, label: 'WAN DOWN · live traffic', format: bps, color: accent,
+           query: 'sum(rate(node_network_receive_bytes_total{instance="${router}",device="${wan_if}"}[1m])) * 8'}
+        - {type: stat, id: wan_up, h: 58, w: 6, label: 'WAN UP · live traffic', format: bps, color: accent2,
+           query: 'sum(rate(node_network_transmit_bytes_total{instance="${router}",device="${wan_if}"}[1m])) * 8'}
+      - - {type: spark, h: 112, w: 6, label: WAN down, format: bps, color: accent,
+           query: 'sum(rate(node_network_receive_bytes_total{instance="${router}",device="${wan_if}"}[1m])) * 8'}
+        - {type: spark, h: 112, w: 6, label: WAN up, format: bps, color: accent2,
+           query: 'sum(rate(node_network_transmit_bytes_total{instance="${router}",device="${wan_if}"}[1m])) * 8'}
+
+  # ------------------------------------------------------------------ Router
+  - id: router
+    title: Router
+    hide_if_empty: true
+    rows:
+      - - {type: stat, id: temp, w: 4, label: CPU TEMP, format: celsius, thresholds: {warn: 75, bad: 90},
+           query: 'node_thermal_zone_temp{instance="${router}"}'}
+        - {type: stat, id: load, w: 4, label: LOAD (1m), format: 'num:2', thresholds: {warn: 1.5, bad: 3.5},
+           query: 'node_load1{instance="${router}"}'}
+        - {type: stat, id: uptime, w: 4, label: UPTIME, format: dur, query: 'time() - node_boot_time_seconds{instance="${router}"}'}
+      - - type: stat
+          id: connections
+          w: 6
+          label: CONNECTIONS
+          color: accent
+          queries:
+            v:   'node_nf_conntrack_entries{instance="${router}"}'
+            max: 'node_nf_conntrack_entries_limit{instance="${router}"}'
+          sub: 'of {max}'
+        - {type: stat, id: lan, w: 6, label: LAN TRAFFIC, sub: '${lan_if} receive', format: bps, color: accent2,
+           query: 'sum(rate(node_network_receive_bytes_total{instance="${router}",device="${lan_if}"}[1m])) * 8'}
+      - type: bar
+        id: memory
+        label: MEMORY IN USE
+        thresholds: {warn: 80, bad: 92}
+        query: '100 * (1 - node_memory_MemAvailable_bytes{instance="${router}"} / node_memory_MemTotal_bytes{instance="${router}"})'
+      - type: spark
+        label: LAN receive
+        format: bps
+        query: 'sum(rate(node_network_receive_bytes_total{instance="${router}",device="${lan_if}"}[1m])) * 8'
+
+  # ------------------------------------------------------------------ Hosts
+  - id: hosts
+    title: Hosts
+    rows:
+      - type: table                      # one row per Proxmox node, from prometheus-pve-exporter
+        id: proxmox
+        title: PROXMOX
+        key: id
+        rename: [['^node/', '']]
+        columns:
+          - {header: up,  kind: dot, query: 'pve_up{id=~"node/.*"}'}
+          - {header: CPU, kind: bar, scale: 100, thresholds: {warn: 70, bad: 90}, query: 'pve_cpu_usage_ratio{id=~"node/.*"}'}
+          - {header: RAM, kind: bar, scale: 100, thresholds: {warn: 80, bad: 92},
+             query: 'pve_memory_usage_bytes{id=~"node/.*"} / pve_memory_size_bytes{id=~"node/.*"}'}
+      - - type: stat
+          id: hosts_up
+          h: 56
+          label: HOSTS UP
+          queries:
+            up:    'count(up{job="node"} == 1)'
+            total: 'count(up{job="node"})'
+            pct:   '100 * count(up{job="node"} == 1) / count(up{job="node"})'
+          value: '{up:int} / {total:int}'
+          color_query: pct
+          thresholds: {bad_below: 100}
+        - {type: stat, id: avg_cpu, h: 56, label: AVG CPU, format: pct, thresholds: {warn: 70, bad: 90},
+           query: '100 * (1 - avg(rate(node_cpu_seconds_total{job="node",mode="idle"}[2m])))'}
+      - type: list                       # empty (and so green) when nothing is down
+        id: hosts_down
+        query: 'up{job="node"} == 0'
+        name: '{instance}'
+        cols: 1
+        empty_text: All hosts reporting
+        empty_color: good
+
+  # ------------------------------------------------------------------ NAS
+  - id: nas
+    title: NAS
+    hide_if_empty: true
+    rows:
+      - - type: stat
+          id: cpu
+          h: 46
+          label: CPU
+          queries:
+            v:    '100 * (1 - avg(rate(node_cpu_seconds_total{instance="${nas}",mode="idle"}[2m])))'
+            load: 'node_load1{instance="${nas}"}'
+          value: '{v:pct}'
+          sub: 'load {load:num:2}'
+          thresholds: {warn: 70, bad: 90}
+        - {type: stat, id: memory, h: 46, label: MEMORY, format: pct, thresholds: {warn: 80, bad: 92},
+           query: '100 * (1 - node_memory_MemAvailable_bytes{instance="${nas}"} / node_memory_MemTotal_bytes{instance="${nas}"})'}
+        - {type: stat, id: uptime, h: 46, label: UPTIME, format: dur, query: 'time() - node_boot_time_seconds{instance="${nas}"}'}
+      - type: table
+        id: volumes
+        key: mountpoint
+        columns:
+          - header: used
+            kind: bar
+            thresholds: {warn: 85, bad: 95}
+            width: 130
+            query: '100 * (1 - node_filesystem_avail_bytes{instance="${nas}",mountpoint=~"${nas_mounts}",fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{instance="${nas}",mountpoint=~"${nas_mounts}",fstype!~"tmpfs|overlay|squashfs"})'
+          - {header: free, format: bytes, width: 70,
+             query: 'node_filesystem_avail_bytes{instance="${nas}",mountpoint=~"${nas_mounts}",fstype!~"tmpfs|overlay|squashfs"}'}
+      - type: list
+        id: checks
+        cols: 2
+        items:
+          - {name: RAID healthy, query: 'sum(node_md_disks{instance="${nas}",state="failed"}) == bool 0'}
+          - {name: exporter up,  query: 'up{job="node",instance="${nas}"}'}
+      - type: stat
+        id: network
+        h: 40
+        label: 'NETWORK (${nas_if})'
+        color: accent
+        queries:
+          rx: 'sum(rate(node_network_receive_bytes_total{instance="${nas}",device="${nas_if}"}[1m])) * 8'
+          tx: 'sum(rate(node_network_transmit_bytes_total{instance="${nas}",device="${nas_if}"}[1m])) * 8'
+        value: '↓ {rx:bps}   ↑ {tx:bps}'
+      - type: table                       # too tall for the LCD: web page and CLI only
+        id: disks
+        only: web
+        title: DISKS
+        key: device
+        columns:
+          - {header: read,  format: Bps, width: 90, query: 'rate(node_disk_read_bytes_total{instance="${nas}",device=~"sd[a-z]"}[2m])'}
+          - {header: write, format: Bps, width: 90, query: 'rate(node_disk_written_bytes_total{instance="${nas}",device=~"sd[a-z]"}[2m])'}
+          - {header: busy,  format: pct, scale: 100, width: 60, query: 'rate(node_disk_io_time_seconds_total{instance="${nas}",device=~"sd[a-z]"}[2m])'}
+
+  # ------------------------------------------------------------------ Downloads
+  - id: downloads
+    title: Downloads
+    hide_if_empty: true
+    rows:
+      - {type: text, text: QBITTORRENT}
+      - - {type: stat, id: qb_down, h: 58, label: DOWN, format: bps, color: accent,  query: 'qbittorrent_global_download_speed_bytes * 8'}
+        - {type: stat, id: qb_up,   h: 58, label: UP,   format: bps, color: accent2, query: 'qbittorrent_global_upload_speed_bytes * 8'}
+        - {type: stat, id: torrents, h: 58, label: TORRENTS, query: 'qbittorrent_global_torrents'}
+      - {type: text, text: 'NZBGET · SONARR'}
+      - - {type: stat, id: nzb_speed, h: 58, label: SPEED, format: bps, color: accent, query: 'rate(nzbget_downloaded_total_bytes[2m]) * 8'}
+        - {type: stat, id: nzb_queue, h: 58, label: QUEUE REMAINING, format: bytes, query: 'nzbget_queue_remaining_bytes'}
+        - {type: stat, id: sonarr_queue, h: 58, label: SONARR QUEUE, query: 'sum(sonarr_queue_total)'}
+      - type: spark
+        h: 60
+        label: total download
+        format: bps
+        query: 'sum(qbittorrent_global_download_speed_bytes) * 8 + (sum(rate(nzbget_downloaded_total_bytes[2m])) * 8 or vector(0))'
+
+  # ------------------------------------------------------------------ Services
+  - id: services
+    title: Services
+    hide_if_empty: true
+    rows:
+      - type: list                       # Uptime Kuma's /metrics endpoint
+        id: kuma
+        title: UPTIME KUMA
+        query: 'monitor_status{monitor_type!="group"}'
+        name: '{monitor_name}'
+        cols: 3
+      - type: list                       # blackbox_exporter probes
+        id: probes
+        title: WEB CHECKS
+        query: 'probe_success{job=~"${probe_job}"}'
+        name: '{instance}'
+        rename: [['^https?://', ''], ['/$', '']]
+        cols: 2

@@ -1,0 +1,66 @@
+# Minimal starting point. Needs only a Prometheus-compatible server scraping node_exporter
+# (job "node"); nothing else. Copy to /etc/netdisplay/config.yaml (or ./netdisplay.yaml) and edit.
+#
+#   netdisplay validate     # checks the file, the datasource and every query
+#   netdisplay show         # print it
+#   netdisplay serve        # web page on the configured port
+title: Home lab
+
+datasource:
+  url: http://localhost:9090          # Prometheus, VictoriaMetrics, Mimir, Thanos...
+
+alerts:                                # each rule turns every matching series into a message in the red banner
+  rules:
+    - {name: host down, expr: 'up{job="node"} == 0', message: '{instance} is down'}
+    - name: disk nearly full
+      expr: '1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|rootfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|rootfs|overlay"} > 0.9'
+      message: '{instance} root disk {value:ratio} full'
+
+pages:
+  - id: overview
+    title: Overview
+    rows:
+      - - type: stat
+          label: HOSTS UP
+          queries:
+            up:    'count(up{job="node"} == 1)'
+            total: 'count(up{job="node"})'
+            pct:   '100 * count(up{job="node"} == 1) / count(up{job="node"})'
+          value: '{up:int} / {total:int}'
+          color_query: pct
+          thresholds: {bad_below: 100}
+        - type: stat
+          label: AVG CPU
+          format: pct
+          thresholds: {warn: 70, bad: 90}
+          query: '100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[2m])))'
+        - type: stat
+          label: AVG MEMORY
+          format: pct
+          thresholds: {warn: 80, bad: 92}
+          query: '100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))'
+      - type: table
+        title: HOSTS
+        key: instance
+        limit: 6
+        columns:
+          - {header: up,   kind: dot, query: 'up{job="node"}'}
+          - {header: CPU,  kind: bar, thresholds: {warn: 70, bad: 90},
+             query: '100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])))'}
+          - {header: RAM,  kind: bar, thresholds: {warn: 80, bad: 92},
+             query: '100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)'}
+          - {header: disk, kind: bar, thresholds: {warn: 80, bad: 92},
+             query: '100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|rootfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|rootfs|overlay"})'}
+
+  - id: network
+    title: Network
+    rows:
+      - - {type: stat, label: DOWNLOAD, format: bps, color: accent,
+           query: 'sum(rate(node_network_receive_bytes_total{device!~"lo|veth.*|docker.*|br-.*"}[1m])) * 8'}
+        - {type: stat, label: UPLOAD, format: bps, color: accent2,
+           query: 'sum(rate(node_network_transmit_bytes_total{device!~"lo|veth.*|docker.*|br-.*"}[1m])) * 8'}
+      - type: spark
+        h: 90
+        label: received, last 30 min
+        format: bps
+        query: 'sum(rate(node_network_receive_bytes_total{device!~"lo|veth.*|docker.*|br-.*"}[1m])) * 8'

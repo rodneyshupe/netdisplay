@@ -1,0 +1,66 @@
+# SNIPPET: a DNS page for a Technitium DNS cluster (works for one server too).
+#
+# Copy the `pages:` entry (and the alert rule) into your own config and add the two `vars:` to its `vars:` block.
+# This file is itself a complete config, so `netdisplay -c examples/snippets/technitium-dns.yaml validate` works.
+#
+# Technitium does not export Prometheus metrics itself. This page expects these series, which you produce with
+# a small script that reads Technitium's HTTP API (GET /api/dashboard/stats/get?type=LastHour) and pushes the
+# numbers to a Pushgateway (or writes them for the node_exporter textfile collector) every minute:
+#
+#   technitium_last_hour_queries{instance="cluster"}       total queries in the last hour
+#   technitium_last_hour_blocked / _cached / _recursive / _servfail / _clients    same labels
+#   technitium_up{instance="dns1"}                         1 if node answers its API (one series per node)
+#   technitium_last_hour_queries{instance="dns1"}          the same per-node counts as the cluster series
+#
+# The aggregate uses instance="cluster" and the nodes use instance="<node name>"; both are configurable below.
+title: DNS
+
+datasource:
+  url: http://192.168.1.10:8428
+
+vars:
+  dns_cluster: cluster          # `instance` label of the aggregate (all nodes) series
+  dns_nodes: 'dns.*'            # regex matching the per-node `instance` labels
+
+alerts:
+  rules:
+    - {name: dns node down, expr: 'technitium_up{instance=~"${dns_nodes}"} == 0', message: '{instance} DNS down'}
+
+pages:
+  - id: dns
+    title: DNS
+    hide_if_empty: true
+    rows:
+      - - type: stat
+          id: queries
+          label: QUERIES / HOUR
+          color: accent
+          query: 'technitium_last_hour_queries{instance="${dns_cluster}"}'
+        - type: stat
+          id: blocked
+          label: BLOCKED
+          color: warn
+          queries:
+            pct: '100 * technitium_last_hour_blocked{instance="${dns_cluster}"} / technitium_last_hour_queries{instance="${dns_cluster}"}'
+            n:   'technitium_last_hour_blocked{instance="${dns_cluster}"}'
+          value: '{pct:pct}'
+          sub: '{n} queries'
+        - {type: stat, id: clients, label: CLIENTS, sub: last hour, query: 'technitium_last_hour_clients{instance="${dns_cluster}"}'}
+      - - {type: stat, h: 40, label: CACHED,    format: pct,
+           query: '100 * technitium_last_hour_cached{instance="${dns_cluster}"} / technitium_last_hour_queries{instance="${dns_cluster}"}'}
+        - {type: stat, h: 40, label: RECURSIVE, format: pct,
+           query: '100 * technitium_last_hour_recursive{instance="${dns_cluster}"} / technitium_last_hour_queries{instance="${dns_cluster}"}'}
+        - {type: stat, h: 40, label: SERVFAIL / HOUR, thresholds: {warn: 50, bad: 200},
+           query: 'technitium_last_hour_servfail{instance="${dns_cluster}"}'}
+      - type: table
+        id: resolvers
+        key: instance
+        rename: [['\..*$', '']]          # dns1.example.net -> dns1
+        columns:
+          - {header: up, kind: dot, query: 'technitium_up{instance=~"${dns_nodes}"}'}
+          - {header: queries/h, query: 'technitium_last_hour_queries{instance=~"${dns_nodes}"}', format: num, width: 90}
+      - type: spark
+        h: 40
+        label: queries / hour (3 h)
+        minutes: 180
+        query: 'technitium_last_hour_queries{instance="${dns_cluster}"}'

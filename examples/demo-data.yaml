@@ -1,0 +1,110 @@
+# Canned data for `netdisplay --demo examples/demo-data.yaml ...` with examples/homelab.yaml.
+# It lets you try the dashboard with no Prometheus, and it is what the README screenshots are rendered from.
+# Everything here is invented.
+#
+# The first rule whose `match` regex is found in a query wins, so specific rules come before general ones.
+# `series` gives the instant-query result; `range` shapes the sparkline for that query.
+rules:
+  # ---- anything that means "something is wrong" returns nothing, so the dashboard shows all-clear
+  - {match: '(== 0|> 0\.92)$', series: []}
+
+  # ---- Internet: speedtest and probes
+  - {match: '^100 \* \(\(last_over_time\(speedtest', series: [{value: 96}]}
+  - {match: 'timestamp\(last_over_time\(speedtest', series: [{value: 540}]}
+  - {match: '^last_over_time\(speedtest_download', series: [{value: 296e6}]}
+  - {match: '^last_over_time\(speedtest_upload', series: [{value: 66e6}]}
+  - {match: '^avg_over_time\(speedtest_download', series: [{value: 281e6}]}
+  - {match: '^avg_over_time\(speedtest_upload', series: [{value: 63e6}]}
+  - {match: 'speedtest_ping', series: [{value: 11.8}]}
+  - {match: 'probe_duration_seconds', series: [{value: 124}]}
+  - {match: '^count\(probe_success.*or vector\(0\)$', series: [{value: 5}]}
+  - {match: '^count\(probe_success\{job=~"blackbox\.\*"\}\)$', series: [{value: 5}]}
+  - {match: '^100 \* \(count\(probe_success', series: [{value: 100}]}
+  - match: '^probe_success\{job'
+    series:
+      - {labels: {instance: 'https://www.google.com/'}, value: 1}
+      - {labels: {instance: 'https://github.com/'}, value: 1}
+      - {labels: {instance: 'https://www.cloudflare.com/'}, value: 1}
+      - {labels: {instance: 'https://example.com/'}, value: 1}
+      - {labels: {instance: 'https://status.example.org/'}, value: 1}
+
+  # ---- Router
+  - {match: 'node_network_receive_bytes_total\{instance="router",device="wan"', series: [{value: 22.6e6}], range: {base: 22e6, amp: 0.45, noise: 0.25}}
+  - {match: 'node_network_transmit_bytes_total\{instance="router",device="wan"', series: [{value: 3.1e6}], range: {base: 3e6, amp: 0.4, noise: 0.3}}
+  - {match: 'node_network_receive_bytes_total\{instance="router",device="br-lan"', series: [{value: 2.8e6}], range: {base: 3.2e6, amp: 0.5, noise: 0.3}}
+  - {match: 'node_thermal_zone_temp\{instance="router"', series: [{value: 68}]}
+  - {match: 'node_load1\{instance="router"', series: [{value: 0.12}]}
+  - {match: 'node_boot_time_seconds\{instance="router"', series: [{value: 1860000}]}
+  - {match: 'node_nf_conntrack_entries_limit', series: [{value: 16384}]}
+  - {match: 'node_nf_conntrack_entries\{', series: [{value: 1480}]}
+  - {match: 'node_memory_MemAvailable_bytes\{instance="router"', series: [{value: 46}]}
+
+  # ---- Hosts (Proxmox nodes and node_exporter targets)
+  - match: '^pve_cpu_usage_ratio'
+    series:
+      - {labels: {id: node/pve1}, value: 0.41}
+      - {labels: {id: node/pve2}, value: 0.22}
+      - {labels: {id: node/pve3}, value: 0.27}
+  - match: '^pve_memory_usage_bytes'
+    series:
+      - {labels: {id: node/pve1}, value: 0.43}
+      - {labels: {id: node/pve2}, value: 0.38}
+      - {labels: {id: node/pve3}, value: 0.36}
+  - match: '^pve_up'
+    series:
+      - {labels: {id: node/pve1}, value: 1}
+      - {labels: {id: node/pve2}, value: 1}
+      - {labels: {id: node/pve3}, value: 1}
+  - {match: '^count\(up\{job="node"\} == 1\)$', series: [{value: 7}]}
+  - {match: '^count\(up\{job="node"\}\)$', series: [{value: 7}]}
+  - {match: '^100 \* count\(up\{job="node"\}', series: [{value: 100}]}
+  - {match: 'job="node",mode="idle"', series: [{value: 14}]}
+
+  # ---- NAS
+  - {match: 'node_cpu_seconds_total\{instance="nas"', series: [{value: 11}]}
+  - {match: 'node_memory_MemAvailable_bytes\{instance="nas"', series: [{value: 54}]}
+  - {match: 'node_load1\{instance="nas"', series: [{value: 1.4}]}
+  - {match: 'node_boot_time_seconds\{instance="nas"', series: [{value: 1900000}]}
+  - match: '^100 \* \(1 - node_filesystem_avail_bytes\{instance="nas"'
+    series:
+      - {labels: {mountpoint: /volume1}, value: 72}
+      - {labels: {mountpoint: /volume2}, value: 41}
+  - match: '^node_filesystem_avail_bytes\{instance="nas"'
+    series:
+      - {labels: {mountpoint: /volume1}, value: 2.2e12}
+      - {labels: {mountpoint: /volume2}, value: 5.9e12}
+  - {match: 'node_md_disks', series: [{value: 1}]}
+  - {match: '^up\{job="node",instance="nas"\}', series: [{value: 1}]}
+  - {match: 'node_network_receive_bytes_total\{instance="nas"', series: [{value: 9.2e6}]}
+  - {match: 'node_network_transmit_bytes_total\{instance="nas"', series: [{value: 0.9e6}]}
+  - match: 'node_disk_read_bytes_total'
+    series: [{labels: {device: sda}, value: 3.4e6}, {labels: {device: sdb}, value: 3.0e6}, {labels: {device: sdc}, value: 0}]
+  - match: 'node_disk_written_bytes_total'
+    series: [{labels: {device: sda}, value: 1.1e6}, {labels: {device: sdb}, value: 1.1e6}, {labels: {device: sdc}, value: 0}]
+  - match: 'node_disk_io_time_seconds_total'
+    series: [{labels: {device: sda}, value: 0.14}, {labels: {device: sdb}, value: 0.13}, {labels: {device: sdc}, value: 0}]
+
+  # ---- Downloads
+  - {match: '^sum\(qbittorrent_global_download_speed_bytes\)', series: [{value: 14e6}], range: {base: 14e6, amp: 0.5, noise: 0.5}}
+  - {match: '^qbittorrent_global_download_speed_bytes', series: [{value: 14.2e6}]}
+  - {match: '^qbittorrent_global_upload_speed_bytes', series: [{value: 1.1e6}]}
+  - {match: '^qbittorrent_global_torrents', series: [{value: 26}]}
+  - {match: '^rate\(nzbget_downloaded_total_bytes', series: [{value: 0}]}
+  - {match: '^nzbget_queue_remaining_bytes', series: [{value: 0}]}
+  - {match: '^sum\(sonarr_queue_total\)', series: [{value: 19}]}
+
+  # ---- Services (Uptime Kuma)
+  - match: '^monitor_status\{monitor_type'
+    series:
+      - {labels: {monitor_name: Jellyfin}, value: 1}
+      - {labels: {monitor_name: Sonarr}, value: 1}
+      - {labels: {monitor_name: Radarr}, value: 1}
+      - {labels: {monitor_name: qBittorrent}, value: 1}
+      - {labels: {monitor_name: NZBGet}, value: 1}
+      - {labels: {monitor_name: Home Assistant}, value: 1}
+      - {labels: {monitor_name: Grafana}, value: 1}
+      - {labels: {monitor_name: Nextcloud}, value: 1}
+      - {labels: {monitor_name: Reverse proxy}, value: 1}
+      - {labels: {monitor_name: Photo library}, value: 1}
+      - {labels: {monitor_name: Wiki}, value: 1}
+      - {labels: {monitor_name: Password manager}, value: 1}

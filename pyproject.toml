@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netdisplay"
+version = "1.0.0"
+description = "Config-driven dashboard for a small LCD, a web page and the command line, fed by PromQL"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+dependencies = ["PyYAML>=5.3"]
+
+[project.optional-dependencies]
+lcd = ["Pillow>=8.0"]          # needed for the LCD, `netdisplay png` and the web /screen.png only
+test = ["pytest"]
+
+[project.scripts]
+netdisplay = "netdisplay.cli:main"
+
+[tool.setuptools]
+packages = ["netdisplay"]
+
+[tool.setuptools.package-data]
+netdisplay = ["web/index.html"]

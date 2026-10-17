@@ -1,0 +1,105 @@
+# SNIPPET: a status page for a 3-node Authentik high-availability cluster (PostgreSQL primary + standbys,
+# one keepalived VIP), showing which node is the master and whether everything is healthy.
+#
+# Copy the `pages:` entry and the `alerts.rules` into your own config and add the `vars:` to its `vars:` block.
+# This file is itself a complete config, so `netdisplay -c examples/snippets/authentik-ha.yaml validate` works.
+#
+# Authentik itself does not export these. They come from contrib/authentik_metrics.sh (see contrib/README.md),
+# which each node runs every minute to push its own state to a Pushgateway as job "authentik":
+#
+#   authentik_node_vip_holder{instance="<node>"}       1 on the node that currently holds the VIP
+#   authentik_db_primary                               1 on the PostgreSQL primary, 0 on standbys
+#   authentik_db_replicas_streaming                    (primary) number of standbys streaming
+#   authentik_db_receiving                             (standby) 1 if it is receiving WAL
+#   authentik_db_up, authentik_web_ready, authentik_db_connections
+#   authentik_container_up{container="authentik-server|authentik-worker|postgresql|ldap-outpost"}
+#   authentik_last_push_timestamp_seconds              when the node last reported (staleness check)
+title: Authentik
+
+datasource:
+  url: http://192.168.1.10:8428
+
+vars:
+  ak_vip: 192.168.1.110              # the keepalived VIP, shown on the master tile
+  ak_domain: auth.example.com        # public hostname; looked up in your blackbox probes for the "up" note
+  ak_node_prefix: '^docker-'         # stripped from node names ("docker-node-1" -> "node-1"); use '^$' to keep them
+  ak_nodes: 3                        # number of nodes in the cluster
+
+alerts:
+  rules:
+    - {name: ak vip,       expr: 'sum(authentik_node_vip_holder) != 1',                 message: 'authentik: VIP held by {value} nodes'}
+    - {name: ak primary,   expr: 'sum(authentik_db_primary) != 1',                      message: 'authentik: {value} database primaries'}
+    - {name: ak stale,     expr: 'time() - authentik_last_push_timestamp_seconds > 180', message: 'authentik: {instance} stopped reporting'}
+    - {name: ak web,       expr: 'authentik_web_ready == 0',                            message: 'authentik: {instance} web not ready'}
+    - {name: ak container, expr: 'authentik_container_up == 0',                         message: 'authentik: {instance} {container} unhealthy'}
+    - {name: ak db,        expr: 'authentik_db_up == 0',                                message: 'authentik: {instance} database down'}
+    - {name: ak replica,   expr: 'authentik_db_primary == 0 and on(instance) authentik_db_receiving == 0', message: 'authentik: {instance} not replicating'}
+
+pages:
+  - id: authentik
+    title: Authentik
+    hide_if_empty: true
+    rows:
+      - - type: stat
+          id: master
+          w: 4
+          label: MASTER (VIP)
+          query: 'authentik_node_vip_holder == 1'      # one series: the node holding the VIP
+          value_label: instance
+          rename: [['${ak_node_prefix}', '']]
+          color: good
+          empty_text: NONE
+          empty_color: bad
+          sub: 'VIP ${ak_vip}'
+        - type: stat
+          id: replicas
+          w: 3
+          label: REPLICAS
+          queries:
+            v:     'authentik_db_replicas_streaming and on(instance) (authentik_node_vip_holder == 1)'
+            n:     'scalar(count(authentik_node_vip_holder) - 1)'
+            ratio: '100 * (authentik_db_replicas_streaming and on(instance) (authentik_node_vip_holder == 1)) / scalar(count(authentik_node_vip_holder) - 1)'
+          value: '{v:int}/{n:int}'
+          sub: streaming
+          color_query: ratio
+          thresholds: {bad_below: 100}
+        - type: stat
+          id: cluster
+          w: 5
+          label: CLUSTER
+          queries:
+            # 1 only when: one VIP holder, one primary, all nodes reporting, web/containers/db healthy everywhere,
+            # and the VIP holder is the database primary
+            v: >-
+              (sum(authentik_node_vip_holder) == bool 1)
+              * (sum(authentik_db_primary) == bool 1)
+              * (count(time() - authentik_last_push_timestamp_seconds < 180) == bool ${ak_nodes})
+              * (min(authentik_web_ready) == bool 1)
+              * (min(authentik_container_up) == bool 1)
+              * (min(authentik_db_up) == bool 1)
+              * (count((authentik_node_vip_holder == 1) and on(instance) (authentik_db_primary == 1)) == bool 1)
+            auth: 'probe_success{instance=~"https?://${ak_domain}.*"}'
+          map:
+            1: {text: healthy, color: good}
+            0: {text: ISSUES, color: bad}
+          sub: '${ak_domain} {auth:updown}'
+      - type: table
+        id: nodes
+        key: instance
+        rename: [['${ak_node_prefix}', '']]
+        columns:
+          - {header: '', kind: dot, query: 'authentik_web_ready * on(instance) authentik_db_up * on(instance) (time() - authentik_last_push_timestamp_seconds < 180)'}
+          - header: role
+            width: 66
+            query: 'authentik_node_vip_holder'
+            map: {1: {text: MASTER, color: good}, 0: {text: standby, color: dim}}
+          - header: db
+            width: 62
+            query: 'authentik_db_primary'
+            map: {1: {text: primary, color: fg}, 0: {text: standby, color: dim}}
+          - {header: repl,  format: int, width: 40, query: 'authentik_db_replicas_streaming or authentik_db_receiving'}
+          - {header: srv,   kind: dot, width: 34, query: 'authentik_container_up{container="authentik-server"}'}
+          - {header: wrk,   kind: dot, width: 34, query: 'authentik_container_up{container="authentik-worker"}'}
+          - {header: pg,    kind: dot, width: 34, query: 'authentik_container_up{container="postgresql"}'}
+          - {header: ldap,  kind: dot, width: 34, query: 'authentik_container_up{container="ldap-outpost"}'}
+          - {header: conns, format: int, width: 46, query: 'authentik_db_connections'}

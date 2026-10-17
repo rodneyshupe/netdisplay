@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+:root {
+  --bg: #0e1116; --panel: #1c2129; --panel2: #151a21; --fg: #e8ecf1; --dim: #828c98;
+  --good: #4ac978; --warn: #f0b432; --bad: #f05454; --accent: #50aaff; --accent2: #be82ff;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f2f4f7; --panel: #ffffff; --panel2: #eef1f5; --fg: #1a2027; --dim: #5f6b78;
+          --good: #1f9d55; --warn: #b7791f; --bad: #d63b3b; --accent: #1f6fd1; --accent2: #7c3aed; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; align-items: baseline; gap: 12px; padding: 14px 16px 6px; }
+header h1 { font-size: 20px; margin: 0; }
+header .upd { color: var(--dim); font-size: 12px; margin-left: auto; }
+#alerts { margin: 6px 16px; border-radius: 8px; background: var(--bad); color: #fff; padding: 8px 12px; font-weight: 600; }
+#alerts.ok { background: var(--panel); color: var(--good); font-weight: 500; }
+main { display: grid; gap: 14px; padding: 10px 16px 24px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); }
+.card { background: var(--panel2); border-radius: 12px; padding: 12px; }
+.card h2 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin: 0 0 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; align-items: stretch; }
+.row > * { min-width: 0; }
+.tile { background: var(--panel); border-radius: 8px; padding: 8px 10px; }
+.lbl { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
+.val { font-size: 20px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub { font-size: 11px; color: var(--dim); }
+.good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+.dim { color: var(--dim); } .accent { color: var(--accent); } .accent2 { color: var(--accent2); } .fg { color: var(--fg); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; background: var(--dim); }
+.dot.good { background: var(--good); } .dot.bad { background: var(--bad); } .dot.dim { background: var(--dim); }
+.bar { height: 10px; min-width: 60px; background: var(--bg); border-radius: 5px; overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 5px; background: var(--good); }
+.bar i.warn { background: var(--warn); } .bar i.bad { background: var(--bad); } .bar i.dim { background: var(--dim); }
+.bar i.accent { background: var(--accent); } .bar i.accent2 { background: var(--accent2); }
+.barw .top { display: flex; justify-content: space-between; font-size: 12px; }
+.barw .bar { height: 12px; margin-top: 3px; border-radius: 6px; }
+.spark { position: relative; background: var(--panel); border-radius: 8px; min-height: 64px; }
+.spark svg { width: 100%; height: 64px; display: block; }
+.spark span { position: absolute; left: 8px; top: 3px; font-size: 11px; color: var(--dim); }
+.spark.empty { display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 12px; }
+.title { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; margin: 4px 0 2px; width: 100%; }
+.list { display: grid; gap: 2px 14px; width: 100%; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.item { display: flex; align-items: center; min-width: 0; }
+.item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .meta { color: var(--dim); font-size: 12px; margin-left: 8px; white-space: nowrap; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { font-size: 11px; font-weight: 500; color: var(--dim); text-transform: uppercase; text-align: left; padding: 0 4px 3px 0; }
+td { padding: 3px 4px 3px 0; white-space: nowrap; }
+td.n { padding-right: 10px; }
+td .bar { display: inline-block; width: 70px; vertical-align: middle; margin-right: 6px; }
+.text { font-size: 12px; width: 100%; }
+.msg { text-align: center; padding: 16px 8px; color: var(--dim); }
+footer { text-align: center; color: var(--dim); font-size: 12px; padding: 0 16px 20px; }
+footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<header><h1>{{TITLE}}</h1><span class="upd" id="upd">loading…</span></header>
+<div id="alerts" class="ok">Loading…</div>
+<main id="main"></main>
+<footer><a href="/api/all">JSON</a> · <a href="/screen.png">LCD mirror</a> · refreshes every 5 s</footer>
+<script>
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dot = ok => `<span class="dot ${ok == null ? 'dim' : ok ? 'good' : 'bad'}"></span>`;
+const pct = p => Math.max(0, Math.min(p || 0, 100));
+const flex = w => `flex:${w} 1 ${Math.round(w * 30)}px`;
+
+function spark(wd) {
+  const v = wd.values || [];
+  if (v.length < 2) return '<div class="spark empty">no data</div>';
+  const W = 300, H = 60, hi = Math.max(...v) || 1;
+  const pts = v.map((x, i) => [i * W / (v.length - 1), H - 3 - x / hi * (H - 22)].map(n => n.toFixed(1)).join(','));
+  return `<div class="spark"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">` +
+    `<polygon points="${pts.join(' ')} ${W},${H} 0,${H}" fill="var(--${wd.color})" opacity=".18"/>` +
+    `<polyline points="${pts.join(' ')}" fill="none" stroke="var(--${wd.color})" stroke-width="2" vector-effect="non-scaling-stroke"/>` +
+    `</svg><span>${esc((wd.label + '  peak ' + wd.peak_text).trim())}</span></div>`;
+}
+
+function cell(c) {
+  if (c.kind === 'dot') return `<td>${dot(c.ok)}</td>`;
+  if (c.kind === 'bar') return `<td><span class="bar"><i class="${c.color}" style="width:${pct(c.pct)}%"></i></span><span class="dim">${esc(c.text)}</span></td>`;
+  return `<td class="${c.color}">${esc(c.text)}</td>`;
+}
+
+const WIDGETS = {
+  stat: wd => `<div class="tile"><div class="lbl">${esc(wd.label)}</div><div class="val ${wd.color}">${esc(wd.text)}</div>` +
+              `${wd.sub ? `<div class="sub">${esc(wd.sub)}</div>` : ''}</div>`,
+  spark,
+  bar: wd => `<div class="barw"><div class="top"><span class="dim">${esc(wd.label)}</span><span>${esc(wd.text)}</span></div>` +
+             `<div class="bar"><i class="${wd.color}" style="width:${pct(wd.pct)}%"></i></div></div>`,
+  text: wd => `<div class="text ${wd.color}">${esc(wd.text)}</div>`,
+  list: wd => (wd.title ? `<div class="title">${esc(wd.title)}</div>` : '') + (wd.items.length
+    ? `<div class="list">${wd.items.map(i =>
+        `<div class="item">${dot(i.ok)}<span class="name ${i.ok === false ? 'bad' : ''}">${esc(i.name)}</span>${i.text ? `<span class="meta">${esc(i.text)}</span>` : ''}</div>`).join('')}</div>`
+    : `<div class="${wd.empty_color}">${esc(wd.empty_text)}</div>`),
+  table: wd => (wd.title ? `<div class="title">${esc(wd.title)}</div>` : '') + (wd.rows.length
+    ? `<table><tr><th></th>${wd.columns.map(c => `<th>${esc(c.header)}</th>`).join('')}</tr>${wd.rows.map(r =>
+        `<tr><td class="n">${esc(r.name)}</td>${r.cells.map(cell).join('')}</tr>`).join('')}</table>`
+    : `<div class="dim">${esc(wd.empty_text)}</div>`),
+};
+
+async function refresh() {
+  try {
+    const j = await (await fetch('/api/all', {cache: 'no-store'})).json();
+    const a = document.getElementById('alerts');
+    a.className = j.alerts.length ? '' : 'ok';
+    a.textContent = j.alerts.length ? '⚠ ' + j.alerts.join(' · ') : '✔ No alerts';
+    document.getElementById('main').innerHTML = j.pages.map(p =>
+      `<section class="card"><h2>${esc(p.title)}</h2>${p.rows.map(row => row.filter(wd => wd.only !== 'lcd')).filter(row => row.length).map(row =>
+        `<div class="row">${row.map(wd => `<div style="${flex(wd.w)}">${(WIDGETS[wd.type] || (() => ''))(wd)}</div>`).join('')}</div>`).join('')}</section>`).join('');
+    document.getElementById('upd').textContent = 'updated ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById('upd').textContent = 'offline — retrying';
+  }
+}
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
