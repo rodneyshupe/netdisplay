@@ -152,6 +152,7 @@ def test_contrib_script_is_valid_bash():
 def test_no_personal_details_in_public_files():
     """Keep site-specific strings out of everything but LICENSE and this directory (tests use their own fixtures)."""
     deny = re.compile("|".join(["shu" + "pe", "milli" + "ways", r"192\.168\." + "27", "rod" + "ney"]), re.I)
+    repo_url = "github.com/" + "rodney" + "shupe/netdisplay"      # the project's own public URL is fine (badge, clone URL)
     hits = []
     for top in ("README.md", "install.sh", "pyproject.toml", "examples", "contrib", "netdisplay", "systemd"):
         path = os.path.join(ROOT, top)
@@ -161,6 +162,6 @@ def test_no_personal_details_in_public_files():
                 continue
             with open(f, errors="ignore") as fh:
                 for n, line in enumerate(fh, 1):
-                    if deny.search(line):
+                    if deny.search(line.replace(repo_url, "")):
                         hits.append("%s:%d: %s" % (os.path.relpath(f, ROOT), n, line.strip()[:80]))
     assert not hits, "personal details found:\n" + "\n".join(hits)

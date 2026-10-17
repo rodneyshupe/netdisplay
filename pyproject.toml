@@ -11,6 +11,9 @@ requires-python = ">=3.8"
 license = {text = "MIT"}
 dependencies = ["PyYAML>=5.3"]
 
+[project.urls]
+Homepage = "https://github.com/rodneyshupe/netdisplay"
+
 [project.optional-dependencies]
 lcd = ["Pillow>=8.0"]          # needed for the LCD, `netdisplay png` and the web /screen.png only
 test = ["pytest"]

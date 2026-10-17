@@ -64,7 +64,7 @@ netdisplay is a **personal project**. It was built for one home network: a Raspb
 ## Quick start (try it on any computer)
 
 ```bash
-git clone <this repo> netdisplay && cd netdisplay
+git clone https://github.com/rodneyshupe/netdisplay.git && cd netdisplay
 python3 -m venv .venv && . .venv/bin/activate
 pip install pyyaml pillow
 
