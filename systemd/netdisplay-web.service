@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 Environment=NETDISPLAY_CONFIG=/etc/netdisplay/config.yaml
+EnvironmentFile=-/etc/netdisplay/env
 ExecStart=/usr/local/bin/netdisplay serve
 Restart=always
 RestartSec=5

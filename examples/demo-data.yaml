@@ -108,3 +108,18 @@ rules:
       - {labels: {monitor_name: Photo library}, value: 1}
       - {labels: {monitor_name: Wiki}, value: 1}
       - {labels: {monitor_name: Password manager}, value: 1}
+
+# Canned episodes for the `episodes` widget (hours = offset from now; status: downloaded | active | missing | upcoming)
+sonarr:
+  - {show: Severance,        season: 3, episode: 4, hours: -18, status: downloaded}
+  - {show: Slow Horses,      season: 6, episode: 2, hours: -9,  status: downloaded}
+  - {show: Task,             season: 2, episode: 5, hours: -6,  status: active}
+  - {show: The Rehearsal,    season: 3, episode: 1, hours: -2,  status: missing}
+  - {show: Last of the Summer Wine, season: 31, episode: 7, hours: 1.5, status: upcoming}
+
+# Canned movies for the `movies` widget (days = offset from today; status: downloaded | active | missing | upcoming)
+radarr:
+  - {title: Dune Messiah,       year: 2026, days: -20, status: downloaded}
+  - {title: The Odyssey,        year: 2026, days: -9,  status: active}
+  - {title: Avengers Doomsday,  year: 2026, days: -3,  status: missing}
+  - {title: Toy Story 5,        year: 2026, days: 12,  status: upcoming}

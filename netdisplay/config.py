@@ -10,7 +10,7 @@ except ImportError:  # pragma: no cover
 
 SEARCH = ("./netdisplay.yaml", "~/.config/netdisplay/config.yaml", "/etc/netdisplay/config.yaml")
 
-TOP_KEYS = {"title", "vars", "datasource", "display", "web", "alerts", "pages"}
+TOP_KEYS = {"title", "vars", "datasource", "sonarr", "radarr", "display", "web", "alerts", "pages"}
 PAGE_KEYS = {"id", "title", "rows", "hide_if_empty"}
 _VAR = re.compile(r"\$\{(\w+)\}")
 
@@ -21,6 +21,8 @@ DEFAULTS = {
                 "refresh_seconds": 5, "font_dir": "/usr/share/fonts/truetype/dejavu"},
     "web": {"port": 80, "cache_seconds": 5},
     "alerts": {"ignore": [], "rules": []},
+    "sonarr": {},
+    "radarr": {},
     "pages": [],
 }
 
@@ -35,6 +37,10 @@ WIDGETS = {
     "table": _COMMON | {"title", "key", "name", "rename", "columns", "exclude", "include", "sort", "limit",
                         "empty_text", "empty_color"},
     "text": _COMMON | {"text", "color"},
+    "movies": _COMMON | {"title", "months_back", "months_ahead", "last", "next", "sort", "limit", "rename", "include", "exclude",
+                         "empty_text"},
+    "episodes": _COMMON | {"title", "past_hours", "ahead_hours", "from", "to", "sort", "limit", "rename", "include", "exclude",
+                           "empty_text"},
 }
 COLUMN_KEYS = {"header", "query", "kind", "format", "thresholds", "map", "scale", "width", "color"}
 COLORS = ("good", "warn", "bad", "accent", "accent2", "dim", "fg")
@@ -141,8 +147,12 @@ def validate(cfg):
                     if k not in WIDGETS[t]:
                         warn(ww, "unknown key %r for a %s widget (typo?)" % (k, t))
                 need = {"stat": ("query", "queries"), "spark": ("query",), "bar": ("query",),
-                        "list": ("query", "items"), "table": ("columns",), "text": ("text",)}[t]
-                if not any(k in w for k in need):
+                        "list": ("query", "items"), "table": ("columns",), "text": ("text",), "episodes": (), "movies": ()}[t]
+                if t == "episodes" and not (cfg.get("sonarr") or {}).get("url"):
+                    err(ww, "episodes widget needs a top-level `sonarr:` block with `url` and `api_key`")
+                if t == "movies" and not (cfg.get("radarr") or {}).get("url"):
+                    err(ww, "movies widget needs a top-level `radarr:` block with `url` and `api_key`")
+                if need and not any(k in w for k in need):
                     err(ww, "%s widget needs %s" % (t, " or ".join("`%s`" % n for n in need)))
                 for c in w.get("columns", []) if t == "table" else []:
                     for k in c:

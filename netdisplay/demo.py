@@ -13,8 +13,41 @@ The fixture file is a list of rules; the first rule whose `match` regex is found
 import math
 import random
 import re
+import time
 
 import yaml
+
+
+class DemoSonarr:
+    """Canned episodes from the fixture's `sonarr:` list: {show, season, episode, hours: offset from now, status}."""
+
+    def __init__(self, items):
+        self.items = items
+
+    def episodes(self, start, end):
+        now = time.time()
+        return [{"id": i, "show": e["show"], "season": e["season"], "episode": e["episode"], "aired": now + e["hours"] * 3600,
+                 "has_file": e["status"] == "downloaded"} for i, e in enumerate(self.items)
+                if start <= now + e["hours"] * 3600 <= end]
+
+    def queued_ids(self):
+        return {i for i, e in enumerate(self.items) if e["status"] == "active"}
+
+
+class DemoRadarr:
+    """Canned movies from the fixture's `radarr:` list: {title, year, days: offset from today, status}."""
+
+    def __init__(self, items):
+        self.items = items
+
+    def movies(self, start, end):
+        now = time.time()
+        return [{"id": i, "title": m["title"], "year": m.get("year"), "released": now + m["days"] * 86400,
+                 "has_file": m["status"] == "downloaded", "available": m["status"] != "upcoming"}
+                for i, m in enumerate(self.items) if start <= now + m["days"] * 86400 < end]
+
+    def queued_ids(self):
+        return {i for i, m in enumerate(self.items) if m["status"] == "active"}
 
 
 class DemoDatasource:
@@ -23,6 +56,8 @@ class DemoDatasource:
             data = yaml.safe_load(f) or {}
         self.rules = [(re.compile(r["match"]), r) for r in data.get("rules", [])]
         self.empty, self.errors, self.unmatched = set(), {}, set()
+        self.sonarr = DemoSonarr(data["sonarr"]) if data.get("sonarr") else None
+        self.radarr = DemoRadarr(data["radarr"]) if data.get("radarr") else None
 
     def _rule(self, expr):
         for rx, rule in self.rules:

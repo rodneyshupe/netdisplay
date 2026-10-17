@@ -7,6 +7,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import __version__, config, model, output
 from .metrics import Datasource
+from .radarr import Radarr
+from .sonarr import Sonarr
 
 DESCRIPTION = "Config-driven dashboard for a small LCD, a web page and the command line, fed by PromQL."
 
@@ -15,7 +17,13 @@ def _datasource(args, cfg):
     if args.demo:
         from .demo import DemoDatasource
         return DemoDatasource(args.demo)
-    return Datasource(cfg["datasource"]["url"], cfg["datasource"]["timeout"], cfg["datasource"].get("headers"))
+    ds = Datasource(cfg["datasource"]["url"], cfg["datasource"]["timeout"], cfg["datasource"].get("headers"))
+    for name, cls in (("sonarr", Sonarr), ("radarr", Radarr)):
+        sc = cfg.get(name) or {}
+        if sc.get("url"):
+            key = os.environ.get(sc["api_key_env"], "") if sc.get("api_key_env") else sc.get("api_key", "")
+            setattr(ds, name, cls(sc["url"], key, sc.get("timeout", 6)))
+    return ds
 
 
 def _load(args):

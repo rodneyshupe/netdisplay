@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 Environment=NETDISPLAY_CONFIG=/etc/netdisplay/config.yaml
+EnvironmentFile=-/etc/netdisplay/env
 # Stop the console cursor blinking over the dashboard (harmless if there is no fbcon)
 ExecStartPre=-/bin/sh -c 'echo 0 > /sys/class/graphics/fbcon/cursor_blink'
 ExecStart=/usr/local/bin/netdisplay run

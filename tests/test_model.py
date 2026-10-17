@@ -89,3 +89,90 @@ def test_resolve_page_values_and_widths():
         out = model.resolve_page(ds, page, pool)
     assert out["values"] == {"a": 1.0}
     assert [w["w"] for w in out["rows"][0]] == [6.0, 8]
+
+
+def test_episodes_status_window_and_sort():
+    import time as _t
+    now = _t.time()
+    class S:
+        def episodes(self, start, end):
+            assert abs((end - start) - 24 * 3600) < 5
+            return [{"id": 1, "show": "A", "season": 1, "episode": 2, "aired": now - 3600, "has_file": True},
+                    {"id": 2, "show": "B", "season": 10, "episode": 11, "aired": now - 7200, "has_file": False},
+                    {"id": 3, "show": "C", "season": 1, "episode": 1, "aired": now - 9000, "has_file": False},
+                    {"id": 4, "show": "D", "season": 1, "episode": 1, "aired": now + 1800, "has_file": False}]
+        def queued_ids(self):
+            return {2}
+    ds = FakeDS()
+    ds.sonarr = S()
+    wd = model.resolve_episodes(ds, {})
+    assert [(r["name"], r["cells"][0]["text"], r["cells"][2]["text"]) for r in wd["rows"]] == [
+        ("C", "S01E01", "missing"), ("B", "S10E11", "active"), ("A", "S01E02", "downloaded"), ("D", "S01E01", "upcoming")]
+    assert wd["rows"][3]["cells"][1]["text"].startswith("in ") and wd["rows"][0]["cells"][1]["text"].endswith(" ago")
+    by_status = model.resolve_episodes(ds, {"sort": "status", "limit": 2})
+    assert [r["cells"][2]["text"] for r in by_status["rows"]] == ["active", "missing"]
+
+
+def test_episodes_without_sonarr_is_contained():
+    out = model.resolve_widget(FakeDS(), {"type": "episodes"})
+    assert out["type"] == "text" and "sonarr" in out["text"]
+
+
+def test_episodes_group_by_show_and_status_and_noon_window():
+    import time as _t
+    now = _t.time()
+    seen = {}
+    class S:
+        def episodes(self, start, end):
+            seen["w"] = (start, end)
+            e = lambda i, show, n, ago, f: {"id": i, "show": show, "season": 2, "episode": n, "aired": now - ago * 3600, "has_file": f}
+            return [e(1, "A", 1, 30, True), e(2, "A", 2, 29, True), e(3, "A", 3, 28, True), e(4, "A", 5, 27, True),
+                    e(5, "A", 6, 5, False), e(6, "B", 1, 4, False)]
+        def queued_ids(self):
+            return {5}
+    ds = FakeDS()
+    ds.sonarr = S()
+    wd = model.resolve_episodes(ds, {"from": "-1 12:00", "to": "+1 12:00", "sort": "status"})
+    assert [(r["name"], r["cells"][0]["text"], r["cells"][2]["text"]) for r in wd["rows"]] == [
+        ("A", "S02E06", "active"), ("B", "S02E01", "missing"), ("A", "S02E01-E03, E05", "downloaded")]
+    start, end = seen["w"]
+    assert 47 * 3600 <= end - start <= 49 * 3600 and start < now < end
+    assert model._ep_range([(1, 5), (2, 1)]) == "S01E05, S02E01"
+
+
+def test_movies_status_month_window_and_validation():
+    import time as _t
+    now = _t.time()
+    seen = {}
+    class R:
+        def movies(self, start, end):
+            seen["w"] = (start, end)
+            m = lambda i, t, d, f, a: {"id": i, "title": t, "year": 2026, "released": now + d * 86400, "has_file": f, "available": a}
+            return [m(1, "Got", -10, True, True), m(2, "Loading", -5, False, True), m(3, "Gone", -2, False, True), m(4, "Soon", 9, False, False)]
+        def queued_ids(self):
+            return {2}
+    ds = FakeDS()
+    ds.radarr = R()
+    wd = model.resolve_movies(ds, {"sort": "status"})
+    assert [(r["name"], r["cells"][1]["text"]) for r in wd["rows"]] == [
+        ("Loading (2026)", "active"), ("Gone (2026)", "missing"), ("Soon (2026)", "upcoming"), ("Got (2026)", "downloaded")]
+    start, end = seen["w"]
+    assert 59 * 86400 <= end - start <= 94 * 86400 and start < now < end
+    assert model.resolve_widget(FakeDS(), {"type": "movies"})["type"] == "text"
+
+
+def test_movies_last_and_next():
+    import time as _t
+    now = _t.time()
+    class R:
+        def movies(self, start, end):
+            assert end - start > 3 * 365 * 86400
+            m = lambda i, t, d, f: {"id": i, "title": t, "year": 2026, "released": now + d * 86400, "has_file": f, "available": d <= 0}
+            return [m(1, "Old", -400, True), m(2, "Recent", -30, True), m(3, "Soon", 20, False), m(4, "Far", 800, False)]
+        def queued_ids(self):
+            return set()
+    ds = FakeDS()
+    ds.radarr = R()
+    wd = model.resolve_movies(ds, {"last": 1, "next": 1})
+    assert [(r["name"], r["cells"][1]["text"]) for r in wd["rows"]] == [("Recent (2026)", "downloaded"), ("Soon (2026)", "upcoming")]
+    assert len(model.resolve_movies(ds, {"next": 2})["rows"]) == 2

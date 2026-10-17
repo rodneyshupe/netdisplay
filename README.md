@@ -32,7 +32,7 @@ netdisplay is a **personal project**. It was built for one home network: a Raspb
   - [Top-level keys](#top-level-keys)
   - [vars](#vars) · [datasource](#datasource) · [display](#display) · [web](#web) · [alerts](#alerts)
   - [pages, rows and widgets](#pages-rows-and-widgets)
-  - [Widget reference](#widget-reference): [stat](#stat) · [spark](#spark) · [bar](#bar) · [list](#list) · [table](#table) · [text](#text)
+  - [Widget reference](#widget-reference): [stat](#stat) · [spark](#spark) · [bar](#bar) · [list](#list) · [table](#table) · [episodes](#episodes) · [movies](#movies) · [text](#text)
   - [Formats](#formats) · [Templates](#templates) · [Colours and thresholds](#colours-and-thresholds) · [map](#map-value--text) · [rename](#rename)
   - [How the LCD layout works](#how-the-lcd-layout-works)
   - [Writing queries](#writing-queries)
@@ -149,6 +149,8 @@ Everything except `pages` has a default. Unknown keys on widgets are reported as
 | `title` | `Network status` | Web page title and heading, CLI heading |
 | `vars` | none | Names to reuse throughout the file as `${name}` |
 | `datasource` | see below | Where the metrics come from |
+| `sonarr` | none | Sonarr API, only needed by the [`episodes`](#episodes) widget |
+| `radarr` | none | Radarr API, only needed by the [`movies`](#movies) widget |
 | `display` | see below | LCD settings |
 | `web` | see below | Web server settings |
 | `alerts` | none | Rules that fill the red banner |
@@ -413,6 +415,52 @@ Column keys:
        query: 'pve_memory_usage_bytes{id=~"node/.*"} / pve_memory_size_bytes{id=~"node/.*"}'}
 ```
 
+#### episodes
+
+Recently aired and about-to-air TV episodes with their download status, read from the Sonarr API (Prometheus has no per-episode data). Needs a top-level `sonarr:` block:
+
+```yaml
+sonarr:
+  url: http://sonarr.lan:8989
+  api_key_env: SONARR_APIKEY      # or api_key: "..."; env var keeps the key out of the file
+```
+
+| Key | Default | What |
+|---|---|---|
+| `title` | | Small heading |
+| `past_hours`, `ahead_hours` | `20`, `4` | The window around now, by air date |
+| `from`, `to` | | Fixed window instead, as `<day offset> HH:MM` local time: `from: '-1 12:00'`, `to: '+1 12:00'` is noon yesterday to noon tomorrow (48 h). Overrides `past_hours`/`ahead_hours` |
+| `sort` | `air` | `air` (oldest first) or `status` (active, missing, upcoming, downloaded) |
+| `limit` | | Keep the first N rows after sorting; the LCD fits about 10 |
+| `include`, `exclude`, `rename` | | Regexes on the show name, as for `list` |
+| `empty_text` | `nothing aired` | Shown when the window is empty |
+
+Status per episode: `downloaded` (Sonarr has a file, green), `active` (in Sonarr's download queue, blue), `missing` (aired, no file, not queued, red), `upcoming` (not aired yet, grey). Several episodes of one show with the same status share a row (`S02E01-E03, E05`; the aired column shows the earliest). Only monitored episodes appear. It resolves to a `table`, so `show --json` has the same shape as any table.
+
+```yaml
+- {type: episodes, title: 'NOON YESTERDAY → NOON TOMORROW', from: '-1 12:00', to: '+1 12:00', limit: 10, sort: status}
+```
+
+#### movies
+
+Movies released in a whole-month window with a download status, read from the Radarr API. Needs a top-level `radarr:` block, same shape as `sonarr:` (`url`, `api_key` or `api_key_env`, optional `timeout`).
+
+| Key | Default | What |
+|---|---|---|
+| `title` | | Small heading |
+| `months_back`, `months_ahead` | `1`, `1` | Whole calendar months before and after the current one: the defaults are last month, this month and next month |
+| `last`, `next` | | Instead of the month window: show the `last` most recent released movies and the `next` soonest upcoming ones, however far away (searches 5 years each way). Dates in other years show the year. `last: 1, next: 1` is one row each, oldest first |
+| `sort` | `date` | `date` or `status` (active, missing, upcoming, downloaded) |
+| `limit` | | Keep the first N rows after sorting |
+| `include`, `exclude`, `rename` | | Regexes on the title, as for `list` |
+| `empty_text` | `no movies` | Shown when the window is empty |
+
+The release date is the earliest digital or physical release (when it can be downloaded), or the cinema date if there is neither. Status: `downloaded` (has a file), `active` (in Radarr's queue), `missing` (available and released, no file, not queued), `upcoming` (not yet available). Only monitored movies appear.
+
+```yaml
+- {type: movies, title: MOVIES, last: 1, next: 1}
+```
+
 #### text
 
 Fixed text, handy as a section heading: `{type: text, text: QBITTORRENT, color: dim}`.
@@ -636,6 +684,7 @@ Layout of the code:
 |---|---|
 | `netdisplay/config.py` | Load, default and validate the YAML |
 | `netdisplay/metrics.py` | Prometheus-compatible HTTP client |
+| `netdisplay/sonarr.py`, `radarr.py` | Sonarr / Radarr API clients for the `episodes` and `movies` widgets |
 | `netdisplay/model.py` | Resolve widgets and alerts into plain data (**start here to add a widget type**) |
 | `netdisplay/fmt.py` | Formats, templates, thresholds |
 | `netdisplay/demo.py` | Canned-data datasource behind `--demo` |
